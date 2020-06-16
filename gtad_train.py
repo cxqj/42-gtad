@@ -126,6 +126,8 @@ if __name__ == '__main__':
         train(train_loader, model, optimizer, epoch, mask)
         test(test_loader, model, epoch, mask)
         scheduler.step()
+        
+        
 
 
 
