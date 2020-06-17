@@ -74,7 +74,7 @@ class GCNeXt(nn.Module):
 
         if norm_layer is None:
             norm_layer = nn.BatchNorm1d
-        width = width_group * groups
+        width = width_group * groups   # 32 * 4
         self.tconvs = nn.Sequential(
             nn.Conv1d(channel_in, width, kernel_size=1), nn.ReLU(True),
             nn.Conv1d(width, width, kernel_size=3, groups=groups, padding=1), nn.ReLU(True),
@@ -167,13 +167,13 @@ class GraphAlign(nn.Module):
 class GTAD(nn.Module):
     def __init__(self, opt):
         super(GTAD, self).__init__()
-        self.tscale = opt["temporal_scale"]
-        self.feat_dim = opt["feat_dim"]
-        self.bs = opt["batch_size"]
+        self.tscale = opt["temporal_scale"]  # 256 thumos14, 100 anet
+        self.feat_dim = opt["feat_dim"]  # 2048
+        self.bs = opt["batch_size"]  # 8
         self.h_dim_1d = 256
         self.h_dim_2d = 128
         self.h_dim_3d = 512
-        self.goi_style = opt['goi_style']
+        self.goi_style = opt['goi_style']  # 0: no context; 1:last layer context; 2:all layer context
         self.h_dim_goi = self.h_dim_1d*(16,32,32)[opt['goi_style']]
         self.idx_list = []
 
