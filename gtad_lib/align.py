@@ -76,3 +76,5 @@ if __name__ == "__main__":
     output = layer(input, proposal)
     print("output has shape {}, with mean {}".format(output.shape, torch.mean(output)))
     print(output)
+
+
