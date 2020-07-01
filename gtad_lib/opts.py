@@ -90,6 +90,7 @@ def parse_opt():
            default=1)  # 0: no context, 1: last layer context, 2: all layer context
 
     # localization branch
+    # 定位是2D卷积的卷积核大小和padding
     parser.add_argument(
         '--kern_2d',
         type=int,
