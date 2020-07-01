@@ -69,22 +69,24 @@ def get_graph_feature(x, prev_x=None, k=20, idx_knn=None, r=-1, style=0):
 class GCNeXt(nn.Module):
     def __init__(self, channel_in, channel_out, k=3, norm_layer=None, groups=32, width_group=4, idx=None):
         super(GCNeXt, self).__init__()
-        self.k = k
-        self.groups = groups
+        self.k = k   # 3
+        self.groups = groups  # 32
 
         if norm_layer is None:
             norm_layer = nn.BatchNorm1d
-        width = width_group * groups   # 32 * 4
+        width = width_group * groups   # 128
+        # 类似于残差网络的瓶颈结构，时序卷积
         self.tconvs = nn.Sequential(
-            nn.Conv1d(channel_in, width, kernel_size=1), nn.ReLU(True),
-            nn.Conv1d(width, width, kernel_size=3, groups=groups, padding=1), nn.ReLU(True),
-            nn.Conv1d(width, channel_out, kernel_size=1),
+            nn.Conv1d(channel_in, width, kernel_size=1), nn.ReLU(True),  # 256-->128
+            nn.Conv1d(width, width, kernel_size=3, groups=groups, padding=1), nn.ReLU(True),  # 128-->128
+            nn.Conv1d(width, channel_out, kernel_size=1),  # 128-->256
         ) # temporal graph
 
+        # 语义卷积
         self.sconvs = nn.Sequential(
-            nn.Conv2d(channel_in * 2, width, kernel_size=1), nn.ReLU(True),
-            nn.Conv2d(width, width, kernel_size=1, groups=groups), nn.ReLU(True),
-            nn.Conv2d(width, channel_out, kernel_size=1),
+            nn.Conv2d(channel_in * 2, width, kernel_size=1), nn.ReLU(True),  # 512-->128
+            nn.Conv2d(width, width, kernel_size=1, groups=groups), nn.ReLU(True),  # 128-->128
+            nn.Conv2d(width, channel_out, kernel_size=1),  # 128-->256
         ) # semantic graph
 
         self.relu = nn.ReLU(True)
@@ -107,14 +109,14 @@ class GCNeXt(nn.Module):
 class GraphAlign(nn.Module):
     def __init__(self, k=3, t=100, d=100, bs=64, samp=0, style=0):
         super(GraphAlign, self).__init__()
-        self.k = k
-        self.t = t
-        self.d = d
-        self.bs = bs
-        self.style = style
+        self.k = k  # 3
+        self.t = t  # 256
+        self.d = d  # 64 for thumos
+        self.bs = bs # 4
+        self.style = style   # 1
         self.expand_ratio = 0.5
-        self.resolution = 16
-        self.align_inner = Align1DLayer(self.resolution, samp)
+        self.resolution = 16   # resolution指的是feat_dim
+        self.align_inner = Align1DLayer(self.resolution, samp)  
         self.align_context = Align1DLayer(16,samp)
         self._get_anchors()
 
@@ -159,8 +161,8 @@ class GraphAlign(nn.Module):
                         anchors.append([k, sample_xmin, sample_xmax])
                     else:
                         anchors.append([k, 0, 0])
-        self.anchor_num = len(anchors) // self.bs
-        self.anchors = torch.tensor(np.stack(anchors)).float()  # save to cpu
+        self.anchor_num = len(anchors) // self.bs  # 16384
+        self.anchors = torch.tensor(np.stack(anchors)).float()  # save to cpu  (65536,3) 3 for [K,sample_xmin,sample_xmax]
         return  # anchors, anchor_num
 
 
@@ -169,22 +171,22 @@ class GTAD(nn.Module):
         super(GTAD, self).__init__()
         self.tscale = opt["temporal_scale"]  # 256 thumos14, 100 anet
         self.feat_dim = opt["feat_dim"]  # 2048
-        self.bs = opt["batch_size"]  # 8
+        self.bs = opt["batch_size"]  # 4
         self.h_dim_1d = 256
         self.h_dim_2d = 128
         self.h_dim_3d = 512
-        self.goi_style = opt['goi_style']  # 0: no context; 1:last layer context; 2:all layer context
-        self.h_dim_goi = self.h_dim_1d*(16,32,32)[opt['goi_style']]
+        self.goi_style = opt['goi_style']  # 论文使用1  0: no context; 1:last layer context; 2:all layer context
+        self.h_dim_goi = self.h_dim_1d*(16,32,32)[opt['goi_style']]  # 256 * 32 = 8192
         self.idx_list = []
 
         # Backbone Part 1
         self.backbone1 = nn.Sequential(
-            nn.Conv1d(self.feat_dim, self.h_dim_1d, kernel_size=3, padding=1, groups=4),
+            nn.Conv1d(self.feat_dim, self.h_dim_1d, kernel_size=3, padding=1, groups=4),   # 2048-->256
             nn.ReLU(inplace=True),
             GCNeXt(self.h_dim_1d, self.h_dim_1d, k=3, groups=32, idx=self.idx_list),
         )
 
-        # Regularization
+        # Regularization,和BMN一样获取起始和结束的得分序列
         self.regu_s = nn.Sequential(
             GCNeXt(self.h_dim_1d, self.h_dim_1d, k=3, groups=32),
             nn.Conv1d(self.h_dim_1d, 1, kernel_size=1), nn.Sigmoid()
@@ -200,6 +202,9 @@ class GTAD(nn.Module):
         )
 
         # SGAlign: sub-graph of interest alignment
+        # tscale : 256 max_duration : 64
+        # goi_samp: 0: sample all frame; 1: sample each output position  
+        # goi_style: 0: no context, 1: last layer context, 2: all layer context  
         self.goi_align = GraphAlign(
             t=self.tscale, d=opt['max_duration'], bs=self.bs,
             samp=opt['goi_samp'], style=opt['goi_style']  # for ablation
@@ -207,11 +212,11 @@ class GTAD(nn.Module):
 
         # Localization Module
         self.localization = nn.Sequential(
-            nn.Conv2d(self.h_dim_goi, self.h_dim_3d, kernel_size=1), nn.ReLU(inplace=True),
-            nn.Conv2d(self.h_dim_3d, self.h_dim_2d, kernel_size=1), nn.ReLU(inplace=True),
-            nn.Conv2d(self.h_dim_2d, self.h_dim_2d, kernel_size=opt['kern_2d'], padding=opt['pad_2d']), nn.ReLU(inplace=True),
-            nn.Conv2d(self.h_dim_2d, self.h_dim_2d, kernel_size=opt['kern_2d'], padding=opt['pad_2d']), nn.ReLU(inplace=True),
-            nn.Conv2d(self.h_dim_2d, 2, kernel_size=1), nn.Sigmoid()
+            nn.Conv2d(self.h_dim_goi, self.h_dim_3d, kernel_size=1), nn.ReLU(inplace=True),  # 8192-->512
+            nn.Conv2d(self.h_dim_3d, self.h_dim_2d, kernel_size=1), nn.ReLU(inplace=True),   # 512-->128
+            nn.Conv2d(self.h_dim_2d, self.h_dim_2d, kernel_size=opt['kern_2d'], padding=opt['pad_2d']), nn.ReLU(inplace=True),  # 128-->128
+            nn.Conv2d(self.h_dim_2d, self.h_dim_2d, kernel_size=opt['kern_2d'], padding=opt['pad_2d']), nn.ReLU(inplace=True),  # 128-->128
+            nn.Conv2d(self.h_dim_2d, 2, kernel_size=1), nn.Sigmoid()  # 128-->2
         )
 
         # Position encoding (not used)
