@@ -24,6 +24,7 @@ torch.backends.cudnn.benchmark = False
 #######################################################
 
 # keep track of statistics
+# 求均值的类
 class AverageMeter(object):
     def __init__(self):
         self.sum = 0
@@ -109,8 +110,8 @@ if __name__ == '__main__':
     model = torch.nn.DataParallel(model, device_ids=list(range(opt['n_gpu']))).cuda()
     print('use {} gpus to train!'.format(opt['n_gpu']))
 
-    optimizer = optim.Adam(model.parameters(), lr=opt["training_lr"],
-                           weight_decay=opt["weight_decay"])
+    optimizer = optim.Adam(model.parameters(), lr=opt["training_lr"],  # 0.00004
+                           weight_decay=opt["weight_decay"])  # 1e-4
     train_loader = torch.utils.data.DataLoader(VideoDataSet(opt, subset="train"),
                                                batch_size=opt["batch_size"], shuffle=True,
                                                num_workers=8, pin_memory=True)
