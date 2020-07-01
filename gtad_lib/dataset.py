@@ -39,8 +39,8 @@ def load_json(file):
 
 class VideoDataSet(data.Dataset):  # thumos
     def __init__(self, opt, subset="train", mode="train"):
-        self.temporal_scale = opt["temporal_scale"]  # 128
-        self.temporal_gap = 1. / self.temporal_scale # 1/128
+        self.temporal_scale = opt["temporal_scale"]  # 256
+        self.temporal_gap = 1. / self.temporal_scale # 1/256
         self.subset = subset
         self.mode = mode
         self.feature_path = opt["feature_path"]
@@ -49,10 +49,10 @@ class VideoDataSet(data.Dataset):  # thumos
         self.feat_dim = opt['feat_dim']
 
         #### THUMOS
-        self.skip_videoframes = opt['skip_videoframes']
-        self.num_videoframes = opt['temporal_scale']
-        self.max_duration = opt['max_duration']
-        self.min_duration = opt['min_duration']
+        self.skip_videoframes = opt['skip_videoframes']  # 5
+        self.num_videoframes = opt['temporal_scale']  # 256
+        self.max_duration = opt['max_duration']  # 64
+        self.min_duration = opt['min_duration']  # 0
         if self.feature_path[-3:]=='200':
             self.feature_dirs = [self.feature_path + "/flow/csv", self.feature_path + "/rgb/csv"]
         else:
@@ -160,9 +160,10 @@ class VideoDataSet(data.Dataset):  # thumos
         elif 'val' in self.subset:
             anno_df = pd.read_csv(self.video_info_path+'test_Annotation.csv')
 
-        video_name_list = sorted(list(set(anno_df.video.values[:])))
+        video_name_list = sorted(list(set(anno_df.video.values[:])))  
 
         video_info_dir = '/'.join(self.video_info_path.split('/')[:-1])
+        
         saved_data_path = os.path.join(video_info_dir, 'saved.%s.%s.nf%d.sf%d.num%d.%s.pkl' % (
             self.feat_dim, self.subset, self.num_videoframes, self.skip_videoframes,
             len(video_name_list), self.mode)
@@ -184,10 +185,10 @@ class VideoDataSet(data.Dataset):  # thumos
         list_videos = []
         list_indices = []
 
-        num_videoframes = self.num_videoframes
-        skip_videoframes = self.skip_videoframes
-        start_snippet = int((skip_videoframes + 1) / 2)
-        stride = int(num_videoframes / 2)
+        num_videoframes = self.num_videoframes  # 256
+        skip_videoframes = self.skip_videoframes # 5
+        start_snippet = int((skip_videoframes + 1) / 2)  # 3
+        stride = int(num_videoframes / 2)  # 128
 
         self.durations = {}
 
@@ -207,7 +208,7 @@ class VideoDataSet(data.Dataset):  # thumos
                 feature_h5s = [
                     self.flow_val[video_name][::self.skip_videoframes,...],
                     self.rgb_val[video_name][::self.skip_videoframes,...]
-                ]
+                ]  # [(T,1024),(T,1024)]
             elif 'test' in video_name:
                 feature_h5s = [
                     self.flow_test[video_name][::self.skip_videoframes,...],
@@ -216,16 +217,18 @@ class VideoDataSet(data.Dataset):  # thumos
             num_snippet = min([h5.shape[0] for h5 in feature_h5s])
             df_data = np.concatenate([h5[:num_snippet, :]
                                       for h5 in feature_h5s],
-                                     axis=1)
+                                     axis=1)  # (T,2048)
 
             # df_snippet = [start_snippet + skip_videoframes * i for i in range(num_snippet)] 
             df_snippet = [skip_videoframes * i for i in range(num_snippet)] 
-            num_windows = int((num_snippet + stride - num_videoframes) / stride)
+            num_windows = int((num_snippet + stride - num_videoframes) / stride)  # (T+128-256) / 128
             windows_start = [i * stride for i in range(num_windows)]
+            
+            # 如果特征长度小于固定的256,则补0
             if num_snippet < num_videoframes:
                 windows_start = [0]
                 # Add on a bunch of zero data if there aren't enough windows.
-                tmp_data = np.zeros((num_videoframes - num_snippet, self.feat_dim))
+                tmp_data = np.zeros((num_videoframes - num_snippet, self.feat_dim)) 
                 df_data = np.concatenate((df_data, tmp_data), axis=0)
                 df_snippet.extend([
                     df_snippet[-1] + skip_videoframes * (i + 1)
@@ -235,15 +238,17 @@ class VideoDataSet(data.Dataset):  # thumos
                 windows_start.append(num_snippet - num_videoframes)
 
             for start in windows_start:
-                tmp_data = df_data[start:start + num_videoframes, :]
+                tmp_data = df_data[start:start + num_videoframes, :]   # (256,2048)
 
-                tmp_snippets = np.array(df_snippet[start:start + num_videoframes])
+                tmp_snippets = np.array(df_snippet[start:start + num_videoframes])  # (256,) [0,5,10,15,...]
+                
                 if self.mode == 'train':
                     tmp_anchor_xmins = tmp_snippets - skip_videoframes / 2.
                     tmp_anchor_xmaxs = tmp_snippets + skip_videoframes / 2.
                     tmp_gt_bbox = []
                     tmp_ioa_list = []
                     for idx in range(len(gt_xmins)):
+                        # gt_xmins和gt_xmaxs是帧的格式
                         tmp_ioa = ioa_with_anchors(gt_xmins[idx], gt_xmaxs[idx],
                                                    tmp_anchor_xmins[0],
                                                    tmp_anchor_xmaxs[-1])
